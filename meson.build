@@ -1,7 +1,6 @@
 project('macro-manager', 'vala', 'c')
 
 vapi_dir = meson.current_source_dir() / 'vapi'
-
 add_project_arguments(['--vapidir', vapi_dir], language: 'vala')
 
 dependencies = [
@@ -16,5 +15,15 @@ dependencies = [
 
 subdir('src')
 
-executable('macro-manager', sources, dependencies: dependencies)
-library('macro-manager', sources, dependencies: dependencies)
+executable('macro-manager', sources,
+    dependencies: dependencies,
+    install: true
+)
+
+pkg = import('pkgconfig')
+lib = library('macro-manager', sources,
+    dependencies: dependencies,
+    install: true,
+    install_dir: [true, true, true]
+)
+pkg.generate(lib)
