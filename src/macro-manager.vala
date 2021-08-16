@@ -32,6 +32,7 @@ namespace MacroManager {
 
 It exposes the following environment variables to called scripts:
 MACRO_MANAGER_WINDOW
+MACRO_MANAGER_WINDOW_PID
 MACRO_MANAGER_WINDOW_WIDTH
 MACRO_MANAGER_WINDOW_HEIGHT
 MACRO_MANAGER_MOUSE_X

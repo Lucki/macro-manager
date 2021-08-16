@@ -15,6 +15,7 @@ Make sure your script is marked as executable
 It exposes the following environment variables from `xdotool` to called scripts:
 ~~~
 MACRO_MANAGER_WINDOW
+MACRO_MANAGER_WINDOW_PID
 MACRO_MANAGER_WINDOW_WIDTH
 MACRO_MANAGER_WINDOW_HEIGHT
 MACRO_MANAGER_MOUSE_X

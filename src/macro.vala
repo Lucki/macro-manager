@@ -88,6 +88,8 @@ namespace MacroManager {
 				if (pid == 0) {
 					printerr("error: unable to get active window pid, using default macros\n");
 				} else {
+					_environment = Environ.set_variable(environment, "MACRO_MANAGER_WINDOW_PID", pid.to_string(), true);
+
 					try {
 						var comm_file = File.new_build_filename(Path.DIR_SEPARATOR_S, "proc", pid.to_string(), "comm");
 
