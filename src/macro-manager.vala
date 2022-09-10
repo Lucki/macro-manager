@@ -37,63 +37,26 @@ MACRO_MANAGER_WINDOW_WIDTH
 MACRO_MANAGER_WINDOW_HEIGHT
 MACRO_MANAGER_MOUSE_X
 MACRO_MANAGER_MOUSE_Y
+MACRO_MANAGER_MOUSE_SCREEN
 
-Config file location: "$XDG_CONFIG_HOME/macro-manager/config.json"
-Script search location: "$XDG_CONFIG_HOME/macro-manager/"
+Config file location: "$XDG_CONFIG_HOME/macro-manager/config.toml"
+Script search location: "$XDG_DATA_HOME/macro-manager/"
 
 Example config:
 ~~~
-{
-	"default": {
-		"set1": {
-			"id3": {
-				"script": "autoclicker.sh",
-				"toggle": true
-			}
-		}
-	},
-	"program.exe": {
-		"set1": {
-			"default_fallback": true,
-			"id8": {
-				"script": "awesome_script1.sh"
-			}
-		}
-	},
-	"firefox" : {
-		"m1" : {
-			"g13" : {
-				"script" : "awesome_script2.sh"
-			}
-		}
-	}
-}
-~~~
+[default.set1.id3]
+script = "autoclicker.sh"
+toggle = true
 
-Example autoclicker script:
-~~~
-#!/bin/bash
+["program.exe".set1]
+default_fallback = true
 
-# define signal handler
-term_handler() {
-	# make sure we're not stuck in a mousedown event
-	xdotool mouseup 1
-	exit 0
-}
+["program.exe".set1.id8]
+script = "awesome_script1.sh"
 
-# register signal handler
-trap term_handler SIGTERM
-
-while true; do
-	# we 're not using xdotool click 1 here because that adds
-	# a 12ms delay between mousedown and mouseup
-	xdotool mousedown 1
-
-	# this adjusts the click speed
-	sleep 0.025
-
-	xdotool mouseup 1
-done
+[firefox.m1]
+g13.script = "awesome_script2.sh"
+g14.script = "subfolder/awesome_script3.sh"
 ~~~
 """);
 				opt_context.parse(ref args);

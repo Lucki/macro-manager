@@ -7,10 +7,11 @@ dependencies = [
     dependency('glib-2.0'),
     dependency('gobject-2.0'),
     dependency('gio-2.0'),
-    dependency('json-glib-1.0'),
     dependency('libxdo'),
     dependency('x11'),
+    meson.get_compiler('c').find_library('libtoml'),
     meson.get_compiler('vala').find_library('posix'),
+    meson.get_compiler('vala').find_library('libtoml', dirs: vapi_dir),
 ]
 
 subdir('src')
