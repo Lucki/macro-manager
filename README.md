@@ -22,6 +22,19 @@ MACRO_MANAGER_MOUSE_Y
 MACRO_MANAGER_MOUSE_SCREEN
 ~~~
 
+## Installation
+This manager requires `glib`, `gio`, `xdotool` and `tomlc99`.
+
+Make requires `vala`, `meson` and `ninja`.
+Make with `meson setup build` and then `meson compile -C build`.
+Adjust options as needed.
+
+Install with `meson install -C build`.
+Adjust options as needed.
+
+By default the library `libmacro-manager.so` will be installed which exposes the `Macro(string macro_id, string macro_set)` object with the `run()` method.
+See [lib]macro-manager-[*].{h,gir,vapi} for details.
+
 ### Example config
 ~~~ toml
 [default.set1.id3]
