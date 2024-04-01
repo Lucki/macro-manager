@@ -1,0 +1,13 @@
+#compdef macro-manager
+# zsh completion for macro-manager
+# shellcheck shell=bash
+# shellcheck disable=2034,2154
+
+__macro-manager() {
+    _arguments \
+        '-V[Version]' \
+        ':Set:' \
+        ':ID:'
+}
+
+__macro-manager

@@ -3,7 +3,7 @@ Searches and executes a script that is associated with the given *ID* and *SET* 
 
 If the current current executable isn't configured or a fallback is allowed for the current set it will try to use the default as fallback if available.
 
-If the script config says the current script is toggelable it will stop already running instance of that script or otherwise start a new one.
+If the script config says the current script is switchable it will stop already running instance of that script or otherwise start a new one.
 This is intended for turning infinite running scripts on and off.
 
 Make sure your script is marked as executable
@@ -23,17 +23,14 @@ MACRO_MANAGER_MOUSE_SCREEN
 ~~~
 
 ## Installation
-This manager requires `glib`, `gio`, `xdotool` and `tomlc99`.
+Build with `make build` or directly with `cargo build --release`.<br>
+The executable is in `target/release/macro-manager`.
 
-Make requires `vala`, `meson` and `ninja`.
-Make with `meson setup build` and then `meson compile -C build`.
-Adjust options as needed.
+Install with `make install`.<br>
+Adjust `PREFIX` and `DESTDIR` as needed.
 
-Install with `meson install -C build`.
-Adjust options as needed.
-
-By default the library `libmacro-manager.so` will be installed which exposes the `Macro(string macro_id, string macro_set)` object with the `run()` method.
-See [lib]macro-manager-[*].{h,gir,vapi} for details.
+By default the library `libmacro_manager.so` will be installed which exposes the `Manager::new()` object together with `get_macro(set: String, id: String)`.
+The Macro object runs with the `run()` method.
 
 ### Example config
 ~~~ toml
