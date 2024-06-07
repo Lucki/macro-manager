@@ -6,24 +6,25 @@ use libxdo_sys::xdo_get_window_size;
 use libxdo_sys::xdo_new;
 // use libxdo_sys::Struct_xdo;
 use rustix::process::Signal;
-use std::borrow::Borrow;
 use std::fs;
 use std::env;
 use std::io::Write;
 // use std::mem::replace;
 use std::path::PathBuf;
 use std::ptr::null;
+use std::time::Duration;
 use toml::Value;
 use std::path::Path;
 use std::process::Command;
 use std::fs::File;
 use rustix::process::kill_process;
 use xdg::BaseDirectories;
+use dbus::blocking::Connection;
+use serde_json;
 
-pub struct Manager<'a> {
+pub struct Manager {
     xdg_dirs: BaseDirectories,
     config_table: toml::Table,
-    xdo: Option<&'a mut libxdo_sys::Struct_xdo>,
 }
 
 pub struct Macro {
@@ -37,7 +38,7 @@ struct ConfigResult {
     toggle: bool,
 }
 
-impl Manager<'_> {
+impl Manager {
     pub fn new() -> Self {
         let xdg_dirs = xdg::BaseDirectories::with_prefix("macro-manager")
             .expect("Unable to get user directories!");
@@ -52,20 +53,14 @@ impl Manager<'_> {
             .expect("Config root is not a table!")
             .to_owned();
 
-        let xdo = unsafe { xdo_new(null()).as_mut() };
-        if xdo.is_none() {
-            eprintln!("Failed initializing xdotool.");
-        }
-
         return Self {
             xdg_dirs,
             config_table,
-            xdo,
         };
     }
 
-    pub fn get_macro(&self, set: String, id: String) -> std::result::Result<Macro, &'static str> {
-        return Macro::new(set, id, &self.config_table, self.xdg_dirs.borrow(), &self.xdo);
+    pub fn get_macro(&self, set: String, id: String) -> Result<Macro, String> {
+        return Macro::new(set, id, &self.config_table, &self.xdg_dirs);
     }
 
     // fn drop(&mut self) {
@@ -80,144 +75,194 @@ impl Manager<'_> {
 }
 
 impl Macro {
-    fn new(set: String, id: String, config_table: &toml::Table, xdg_dirs: &BaseDirectories, xdo: &Option<&mut libxdo_sys::Struct_xdo>) -> std::result::Result<Self, &'static str> {
-        let mut executable = "default";
+    fn new(set: String, id: String, config_table: &toml::Table, xdg_dirs: &BaseDirectories) -> std::result::Result<Self, String> {
+        let mut executable = "default".to_owned();
         let tmp;
 
-        // Check X11
-        if xdo.is_some() {
-            let xdo_safe = &**xdo.as_ref().unwrap();
-            let mut window_ret_init = 0;
-            let window_ret: *mut u64 = &mut window_ret_init;
+        // Check Wayland/X11
+        // https://unix.stackexchange.com/a/559950
+        match env::var("WAYLAND_DISPLAY") {
+            Err(_) => {
+                let xdo = unsafe { xdo_new(null()).as_mut() };
+                if xdo.is_none() {
+                    eprintln!("Failed initializing xdotool.");
+                }
 
-            match unsafe { xdo_get_focused_window_sane(xdo_safe, window_ret) } {
-                0 => {
-                    match unsafe { window_ret.as_ref() } {
-                        Some(val) => env::set_var("MACRO_MANAGER_WINDOW", val.to_string()),
-                        None => (),
-                    }
+                if xdo.is_some() {
+                    let xdo_safe = &**xdo.as_ref().unwrap();
+                    let mut window_ret_init = 0;
+                    let window_ret: *mut u64 = &mut window_ret_init;
 
-                    // X11 window pid
-                    match unsafe { xdo_get_pid_window(xdo_safe, *window_ret) } {
-                        0 => println!("Unable to get PID of active window!"),
-                        window_pid @ _ => {
-                            env::set_var("MACRO_MANAGER_WINDOW_PID", window_pid.to_string());
+                    match unsafe { xdo_get_focused_window_sane(xdo_safe, window_ret) } {
+                        0 => {
+                            match unsafe { window_ret.as_ref() } {
+                                Some(val) => env::set_var("MACRO_MANAGER_WINDOW", val.to_string()),
+                                None => (),
+                            }
 
-                            let all_processes: Vec<procfs::process::Process> = procfs::process::all_processes()
-                                .expect("Can't read /proc")
-                                .filter_map(|p| match p {
-                                    Ok(p) => Some(p),
-                                    Err(e) => match e {
-                                        procfs::ProcError::NotFound(_) => None, // process vanished during iteration, ignore it
-                                        procfs::ProcError::Io(_e, _path) => None, // can match on path to decide if we can continue
-                                        x => {
-                                            println!("Can't read process due to error {x:?}"); // some unknown error
-                                            None
+                            // X11 window pid
+                            match unsafe { xdo_get_pid_window(xdo_safe, *window_ret) } {
+                                0 => println!("Unable to get PID of active window!"),
+                                window_pid @ _ => {
+                                    env::set_var("MACRO_MANAGER_WINDOW_PID", window_pid.to_string());
+
+                                    let all_processes: Vec<procfs::process::Process> = procfs::process::all_processes()
+                                        .expect("Can't read /proc")
+                                        .filter_map(|p| match p {
+                                            Ok(p) => Some(p),
+                                            Err(e) => match e {
+                                                procfs::ProcError::NotFound(_) => None, // process vanished during iteration, ignore it
+                                                procfs::ProcError::Io(_e, _path) => None, // can match on path to decide if we can continue
+                                                x => {
+                                                    println!("Can't read process due to error {x:?}"); // some unknown error
+                                                    None
+                                                }
+                                            },
+                                        })
+                                        .collect();
+
+                                    for process in all_processes {
+                                        if process.pid() == window_pid {
+                                            tmp = match process.stat() {
+                                                Ok(stat) => stat.comm,
+                                                Err(e) => {
+                                                    println!("Failed getting process name: {}", e);
+                                                    "default".to_string()
+                                                },
+                                            };
+                                            executable = tmp;
+                                            break;
                                         }
-                                    },
-                                })
-                                .collect();
-
-                            for process in all_processes {
-                                if process.pid() == window_pid {
-                                    tmp = match process.stat() {
-                                        Ok(stat) => stat.comm,
-                                        Err(e) => {
-                                            println!("Failed getting process name: {}", e);
-                                            "default".to_string()
-                                        },
-                                    };
-                                    executable = tmp.as_ref();
-                                    break;
+                                    }
                                 }
-                            }
-                        }
-                    };
+                            };
 
-                    // X11 window size
-                    let mut active_window_width_init = 0;
-                    let mut active_window_height_init = 0;
-                    let active_window_width: *mut u32 = &mut active_window_width_init;
-                    let active_window_height: *mut u32 = &mut active_window_height_init;
-                    match unsafe { xdo_get_window_size(xdo_safe, *window_ret , active_window_width, active_window_height) } {
-                        0 => {
-                            match unsafe { active_window_width.as_ref() } {
-                                Some(val) => env::set_var("MACRO_MANAGER_WINDOW_WIDTH", val.to_string()),
-                                None => (),
+                            // X11 window size
+                            let mut active_window_width_init = 0;
+                            let mut active_window_height_init = 0;
+                            let active_window_width: *mut u32 = &mut active_window_width_init;
+                            let active_window_height: *mut u32 = &mut active_window_height_init;
+                            match unsafe { xdo_get_window_size(xdo_safe, *window_ret , active_window_width, active_window_height) } {
+                                0 => {
+                                    match unsafe { active_window_width.as_ref() } {
+                                        Some(val) => env::set_var("MACRO_MANAGER_WINDOW_WIDTH", val.to_string()),
+                                        None => (),
+                                    }
+                                    match unsafe { active_window_height.as_ref() } {
+                                        Some(val) => env::set_var("MACRO_MANAGER_WINDOW_HEIGHT", val.to_string()),
+                                        None => (),
+                                    }
+                                },
+                                _ => println!("Unable to get active window size"),
                             }
-                            match unsafe { active_window_height.as_ref() } {
-                                Some(val) => env::set_var("MACRO_MANAGER_WINDOW_HEIGHT", val.to_string()),
-                                None => (),
+
+                            // X11 window location
+                            // let mut window_init_x = 0;
+                            // let mut window_init_y = 0;
+                            // let mut window_init_screen = 0;
+                            // let active_window_x: *mut i32 = &mut window_init_x;
+                            // let active_window_y: *mut i32 = &mut window_init_x;
+                            // let active_window_screen: *mut i32 = &mut window_init_x;
+                            // xdo_get_win
+                            // match xdo_get_window_location(xdo, *window_ret, active_window_x, active_window_y, active_window_screen) {
+                            //     0 => {
+                            //         env::set_var("MACRO_MANAGER_WINDOW_X", active_window_x.as_ref().unwrap().to_string());
+                            //         env::set_var("MACRO_MANAGER_WINDOW_Y", active_window_y.as_ref().unwrap().to_string());
+                            //         // env::set_var("MACRO_MANAGER_WINDOW_SCREEN", active_window_screen.as_ref().unwrap().as_ref().unwrap()..to_string());
+                            //     },
+                            //     _ => panic!("Unable to get window location"),
+                            // }
+
+                            println!("1");
+
+                            // X11 mouse location
+                            let mut mouse_init_x = 0;
+                            let mut mouse_init_y = 0;
+                            let mut mouse_init_screen = 0;
+                            let mouse_location_x: *mut i32 = &mut mouse_init_x;
+                            let mouse_location_y: *mut i32 = &mut mouse_init_y;
+                            let mouse_location_screen: *mut i32 = &mut mouse_init_screen;
+                            match unsafe { xdo_get_mouse_location(xdo_safe, mouse_location_x, mouse_location_y, mouse_location_screen) } {
+                                0 => {
+                                    match unsafe { mouse_location_x.as_ref() } {
+                                        Some(val) => env::set_var("MACRO_MANAGER_MOUSE_X", val.to_string()),
+                                        None => (),
+                                    }
+                                    match unsafe { mouse_location_y.as_ref() } {
+                                        Some(val) => env::set_var("MACRO_MANAGER_MOUSE_Y", val.to_string()),
+                                        None => (),
+                                    }
+                                    match unsafe { mouse_location_screen.as_ref() } {
+                                        Some(val) => env::set_var("MACRO_MANAGER_MOUSE_SCREEN", val.to_string()),
+                                        None => (),
+                                    }
+                                },
+                                _ => println!("Unable to get mouse location"),
                             }
                         },
-                        _ => println!("Unable to get active window size"),
+                        _ => executable = "default".to_owned(),
                     }
+                }
+            },
+            Ok(_) => {
+                // TODO: Check wayland in general
+                // FIXME: Gnome wayland hardcoded for now
+                // Expect extension installed:
+                // https://extensions.gnome.org/extension/4724/window-calls/
+                // https://github.com/ickyicky/window-calls
 
-                    // X11 window location
-                    // let mut window_init_x = 0;
-                    // let mut window_init_y = 0;
-                    // let mut window_init_screen = 0;
-                    // let active_window_x: *mut i32 = &mut window_init_x;
-                    // let active_window_y: *mut i32 = &mut window_init_x;
-                    // let active_window_screen: *mut i32 = &mut window_init_x;
-                    // xdo_get_win
-                    // match xdo_get_window_location(xdo, *window_ret, active_window_x, active_window_y, active_window_screen) {
-                    //     0 => {
-                    //         env::set_var("MACRO_MANAGER_WINDOW_X", active_window_x.as_ref().unwrap().to_string());
-                    //         env::set_var("MACRO_MANAGER_WINDOW_Y", active_window_y.as_ref().unwrap().to_string());
-                    //         // env::set_var("MACRO_MANAGER_WINDOW_SCREEN", active_window_screen.as_ref().unwrap().as_ref().unwrap()..to_string());
-                    //     },
-                    //     _ => panic!("Unable to get window location"),
-                    // }
+                let connection = Connection::new_session().expect("Failed establishing connection");
+                let proxy = connection.with_proxy("org.gnome.Shell", "/org/gnome/Shell/Extensions/Windows", Duration::from_millis(5000));
+                let (windows,): (String,) = proxy.method_call("org.gnome.Shell.Extensions.Windows", "List", ()).expect("No method result");
+                let windows_json: serde_json::Value = serde_json::from_str(&windows).expect("JSON was not well-formatted");
 
-                    // X11 mouse location
-                    let mut mouse_init_x = 0;
-                    let mut mouse_init_y = 0;
-                    let mut mouse_init_screen = 0;
-                    let mouse_location_x: *mut i32 = &mut mouse_init_x;
-                    let mouse_location_y: *mut i32 = &mut mouse_init_y;
-                    let mouse_location_screen: *mut i32 = &mut mouse_init_screen;
-                    match unsafe { xdo_get_mouse_location(xdo_safe, mouse_location_x, mouse_location_y, mouse_location_screen) } {
-                        0 => {
-                            match unsafe { mouse_location_x.as_ref() } {
-                                Some(val) => env::set_var("MACRO_MANAGER_MOUSE_X", val.to_string()),
-                                None => (),
-                            }
-                            match unsafe { mouse_location_y.as_ref() } {
-                                Some(val) => env::set_var("MACRO_MANAGER_MOUSE_Y", val.to_string()),
-                                None => (),
-                            }
-                            match unsafe { mouse_location_screen.as_ref() } {
-                                Some(val) => env::set_var("MACRO_MANAGER_MOUSE_SCREEN", val.to_string()),
-                                None => (),
-                            }
-                        },
-                        _ => println!("Unable to get mouse location"),
+                let mut focused_window = None;
+                for window in windows_json.as_array().unwrap() {
+                    if window.as_object().unwrap().get("focus").unwrap().as_bool().unwrap() == true {
+                        focused_window = window.as_object();
+                        break;
                     }
-                },
-                _ => executable = "default",
-            }
+                }
+
+                if focused_window.is_some() {
+                    let window_id = focused_window.unwrap().get("id").unwrap().as_u64().unwrap();
+                    env::set_var("MACRO_MANAGER_WINDOW", window_id.to_string());
+                    env::set_var("MACRO_MANAGER_WINDOW_PID", focused_window.unwrap().get("pid").unwrap().as_i64().unwrap().to_string());
+                    executable = focused_window.unwrap().get("wm_class").unwrap().as_str().unwrap().to_owned();
+
+                    let (window_details,): (String,) = proxy.method_call("org.gnome.Shell.Extensions.Windows", "Details", (u32::try_from(window_id).unwrap(),)).expect("Failed method result");
+                    let window_details_json: serde_json::Value = serde_json::from_str(&window_details).expect("JSON was not well-formatted");
+
+                    env::set_var("MACRO_MANAGER_WINDOW_WIDTH", window_details_json.as_object().unwrap().get("width").unwrap().as_i64().unwrap().to_string());
+                    env::set_var("MACRO_MANAGER_WINDOW_HEIGHT", window_details_json.as_object().unwrap().get("height").unwrap().as_i64().unwrap().to_string());
+                    env::set_var("MACRO_MANAGER_WINDOW_X", window_details_json.as_object().unwrap().get("x").unwrap().as_i64().unwrap().to_string());
+                    env::set_var("MACRO_MANAGER_WINDOW_Y", window_details_json.as_object().unwrap().get("y").unwrap().as_i64().unwrap().to_string());
+
+                    // Mouse info not available
+                    // MACRO_MANAGER_MOUSE_X
+                    // MACRO_MANAGER_MOUSE_Y
+                    // MACRO_MANAGER_MOUSE_SCREEN
+                }
+            },
         }
-
-        // TODO: Check wayland
 
         // Read toml
         let data_home = xdg_dirs.get_data_home();
-        let config_result = match Self::read_config(config_table, &set, &id, executable, &data_home) {
+        let config_result = match Self::read_config(config_table, &set, &id, &executable, &data_home) {
             Some(val) => val,
             None => {
                 if executable == "default" {
                     eprintln!("No macro found for SET \"{}\" and ID \"{}\".", set, id);
-                    return Err("No macro found for SET and ID.");
+                    return Err("No macro found for SET and ID.".to_owned());
                 }
 
                 // Try again for default values
-                executable = "default";
-                match Self::read_config(config_table, &set, &id, executable, &data_home) {
+                executable = "default".to_owned();
+                match Self::read_config(config_table, &set, &id, &executable, &data_home) {
                     Some(val) => val,
                     None => {
                         eprintln!("No macro found for SET \"{}\" and ID \"{}\".", set, id);
-                        return Err("No macro found for SET and ID.");
+                        return Err("No macro found for SET and ID.".to_owned());
                     }
                 }
             }
@@ -225,11 +270,11 @@ impl Macro {
 
         if !config_result.script_file.try_exists().unwrap() {
             eprintln!("Can't find script file \"{}\"", config_result.script_file.to_string_lossy());
-            return Err("Can't find script file.");
+            return Err("Can't find script file.".to_owned());
         }
 
         // Should be the process name if known or "default" otherwise at this point
-        env::set_var("MACRO_MANAGER_WINDOW_BIN", executable);
+        env::set_var("MACRO_MANAGER_WINDOW_BIN", &executable);
 
         let xdg_macro = xdg::BaseDirectories::with_prefix(format!("macro-manager/{}/{}/{}", executable, set, id))
             .unwrap();

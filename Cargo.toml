@@ -17,3 +17,5 @@ rustix = { version = "*", features = ["process"] }
 xdg = "*"
 procfs = "*"
 notify = "*"
+dbus = "*"
+serde_json = "*"
