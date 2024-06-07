@@ -261,12 +261,19 @@ impl Macro {
                         .expect("Failed reading PID file.");
 
                     // kill pid
-                    kill_process(rustix::process::Pid::from_raw(pid
+                    match kill_process(rustix::process::Pid::from_raw(pid
                                 .parse()
                                 .unwrap())
                             .expect("Failed creating PID object"),
-                        Signal::Term)
-                        .expect("Terminating existing process failed.");
+                        Signal::Term) {
+                            Err(err) => {
+                                match err.raw_os_error() {
+                                    3 => (), // No such process
+                                    _ => panic!("Terminating existing process failed."),
+                                };
+                            },
+                            Ok(()) => (),
+                        }
 
                     // remove existing pid file
                     fs::remove_file(&file)
@@ -321,13 +328,15 @@ impl Macro {
             return None;
         }
 
-        match set_table.get(id)?.as_table()?.get("script") {
+        let set_id_table = set_table.get(id)?.as_table()?;
+        match set_id_table.get("script") {
             Some(value) => {
                 let relative_script_path = value.as_str()?;
 
                 // "toggle" is optional, fill missing value with "false"
-                let toggle = match value.get("toggle") {
-                    Some(val) => val.as_bool().unwrap_or_else(|| {
+                let toggle = match set_id_table.get("toggle") {
+                    Some(val) => val.as_bool()
+                    .unwrap_or_else(|| {
                         println!("Unable to read 'toggle' value, using 'false'");
                         false
                     }),
