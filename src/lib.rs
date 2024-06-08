@@ -257,7 +257,9 @@ impl Macro {
                 }
 
                 // Try again for default values
+                println!("No specific set found for \"{}\", trying \"default\"", &executable);
                 executable = "default".to_owned();
+
                 match Self::read_config(config_table, &set, &id, &executable, &data_home) {
                     Some(val) => val,
                     None => {
