@@ -6,21 +6,25 @@ If the current current executable isn't configured or a fallback is allowed for 
 If the script config says the current script is switchable it will stop already running instance of that script or otherwise start a new one.
 This is intended for turning infinite running scripts on and off.
 
-Make sure your script is marked as executable
+Make sure your script is marked as executable.
 
 * Config file location: `$XDG_CONFIG_HOME/macro-manager/config.toml`
 * Script search location: `$XDG_DATA_HOME/macro-manager/`
 
-It exposes the following environment variables from `xdotool` to called scripts:
+It exposes the following environment variables to called scripts when optional dependencies are available:
 ~~~
 MACRO_MANAGER_WINDOW
+MACRO_MANAGER_WINDOW_BIN
 MACRO_MANAGER_WINDOW_PID
 MACRO_MANAGER_WINDOW_WIDTH
 MACRO_MANAGER_WINDOW_HEIGHT
-MACRO_MANAGER_MOUSE_X
-MACRO_MANAGER_MOUSE_Y
-MACRO_MANAGER_MOUSE_SCREEN
+MACRO_MANAGER_MOUSE_X        // Only on X11
+MACRO_MANAGER_MOUSE_Y        // Only on X11
+MACRO_MANAGER_MOUSE_SCREEN   // Only on X11
 ~~~
+
+* On X11 [`xdotool`](https://www.semicomplete.com/projects/xdotool/) will request the information.
+* On Gnome Wayland the extension [Window Calls](https://github.com/ickyicky/window-calls) will request the information. `dbus` is required for this.
 
 ## Installation
 Build with `make build` or directly with `cargo build --release`.<br>
