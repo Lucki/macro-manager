@@ -104,7 +104,9 @@ impl Macro {
                     match unsafe { xdo_get_focused_window_sane(xdo_safe, window_ret) } {
                         0 => {
                             match unsafe { window_ret.as_ref() } {
-                                Some(val) => env::set_var("MACRO_MANAGER_WINDOW", val.to_string()),
+                                Some(val) => unsafe {
+                                    env::set_var("MACRO_MANAGER_WINDOW", val.to_string())
+                                },
                                 None => (),
                             }
 
@@ -112,10 +114,12 @@ impl Macro {
                             match unsafe { xdo_get_pid_window(xdo_safe, *window_ret) } {
                                 0 => println!("Unable to get PID of active window!"),
                                 window_pid @ _ => {
-                                    env::set_var(
-                                        "MACRO_MANAGER_WINDOW_PID",
-                                        window_pid.to_string(),
-                                    );
+                                    unsafe {
+                                        env::set_var(
+                                            "MACRO_MANAGER_WINDOW_PID",
+                                            window_pid.to_string(),
+                                        )
+                                    };
 
                                     let all_processes: Vec<procfs::process::Process> =
                                         procfs::process::all_processes()
@@ -156,31 +160,31 @@ impl Macro {
                             let mut active_window_height_init = 0;
                             let active_window_width: *mut u32 = &mut active_window_width_init;
                             let active_window_height: *mut u32 = &mut active_window_height_init;
-                            match unsafe {
-                                xdo_get_window_size(
+                            unsafe {
+                                match xdo_get_window_size(
                                     xdo_safe,
                                     *window_ret,
                                     active_window_width,
                                     active_window_height,
-                                )
-                            } {
-                                0 => {
-                                    match unsafe { active_window_width.as_ref() } {
-                                        Some(val) => env::set_var(
-                                            "MACRO_MANAGER_WINDOW_WIDTH",
-                                            val.to_string(),
-                                        ),
-                                        None => (),
+                                ) {
+                                    0 => {
+                                        match active_window_width.as_ref() {
+                                            Some(val) => env::set_var(
+                                                "MACRO_MANAGER_WINDOW_WIDTH",
+                                                val.to_string(),
+                                            ),
+                                            None => (),
+                                        }
+                                        match active_window_height.as_ref() {
+                                            Some(val) => env::set_var(
+                                                "MACRO_MANAGER_WINDOW_HEIGHT",
+                                                val.to_string(),
+                                            ),
+                                            None => (),
+                                        }
                                     }
-                                    match unsafe { active_window_height.as_ref() } {
-                                        Some(val) => env::set_var(
-                                            "MACRO_MANAGER_WINDOW_HEIGHT",
-                                            val.to_string(),
-                                        ),
-                                        None => (),
-                                    }
+                                    _ => println!("Unable to get active window size"),
                                 }
-                                _ => println!("Unable to get active window size"),
                             }
 
                             // X11 window location
@@ -209,36 +213,38 @@ impl Macro {
                             let mouse_location_x: *mut i32 = &mut mouse_init_x;
                             let mouse_location_y: *mut i32 = &mut mouse_init_y;
                             let mouse_location_screen: *mut i32 = &mut mouse_init_screen;
-                            match unsafe {
-                                xdo_get_mouse_location(
+                            unsafe {
+                                match xdo_get_mouse_location(
                                     xdo_safe,
                                     mouse_location_x,
                                     mouse_location_y,
                                     mouse_location_screen,
-                                )
-                            } {
-                                0 => {
-                                    match unsafe { mouse_location_x.as_ref() } {
-                                        Some(val) => {
-                                            env::set_var("MACRO_MANAGER_MOUSE_X", val.to_string())
+                                ) {
+                                    0 => {
+                                        match mouse_location_x.as_ref() {
+                                            Some(val) => env::set_var(
+                                                "MACRO_MANAGER_MOUSE_X",
+                                                val.to_string(),
+                                            ),
+                                            None => (),
                                         }
-                                        None => (),
-                                    }
-                                    match unsafe { mouse_location_y.as_ref() } {
-                                        Some(val) => {
-                                            env::set_var("MACRO_MANAGER_MOUSE_Y", val.to_string())
+                                        match mouse_location_y.as_ref() {
+                                            Some(val) => env::set_var(
+                                                "MACRO_MANAGER_MOUSE_Y",
+                                                val.to_string(),
+                                            ),
+                                            None => (),
                                         }
-                                        None => (),
+                                        match mouse_location_screen.as_ref() {
+                                            Some(val) => env::set_var(
+                                                "MACRO_MANAGER_MOUSE_SCREEN",
+                                                val.to_string(),
+                                            ),
+                                            None => (),
+                                        }
                                     }
-                                    match unsafe { mouse_location_screen.as_ref() } {
-                                        Some(val) => env::set_var(
-                                            "MACRO_MANAGER_MOUSE_SCREEN",
-                                            val.to_string(),
-                                        ),
-                                        None => (),
-                                    }
+                                    _ => println!("Unable to get mouse location"),
                                 }
-                                _ => println!("Unable to get mouse location"),
                             }
                         }
                         _ => executable = "default".to_owned(),
@@ -282,17 +288,19 @@ impl Macro {
 
                 if focused_window.is_some() {
                     let window_id = focused_window.unwrap().get("id").unwrap().as_u64().unwrap();
-                    env::set_var("MACRO_MANAGER_WINDOW", window_id.to_string());
-                    env::set_var(
-                        "MACRO_MANAGER_WINDOW_PID",
-                        focused_window
-                            .unwrap()
-                            .get("pid")
-                            .unwrap()
-                            .as_i64()
-                            .unwrap()
-                            .to_string(),
-                    );
+                    unsafe {
+                        env::set_var("MACRO_MANAGER_WINDOW", window_id.to_string());
+                        env::set_var(
+                            "MACRO_MANAGER_WINDOW_PID",
+                            focused_window
+                                .unwrap()
+                                .get("pid")
+                                .unwrap()
+                                .as_i64()
+                                .unwrap()
+                                .to_string(),
+                        );
+                    }
                     executable = focused_window
                         .unwrap()
                         .get("wm_class")
@@ -311,50 +319,52 @@ impl Macro {
                     let window_details_json: serde_json::Value =
                         serde_json::from_str(&window_details).expect("JSON was not well-formatted");
 
-                    env::set_var(
-                        "MACRO_MANAGER_WINDOW_WIDTH",
-                        window_details_json
-                            .as_object()
-                            .unwrap()
-                            .get("width")
-                            .unwrap()
-                            .as_i64()
-                            .unwrap()
-                            .to_string(),
-                    );
-                    env::set_var(
-                        "MACRO_MANAGER_WINDOW_HEIGHT",
-                        window_details_json
-                            .as_object()
-                            .unwrap()
-                            .get("height")
-                            .unwrap()
-                            .as_i64()
-                            .unwrap()
-                            .to_string(),
-                    );
-                    env::set_var(
-                        "MACRO_MANAGER_WINDOW_X",
-                        window_details_json
-                            .as_object()
-                            .unwrap()
-                            .get("x")
-                            .unwrap()
-                            .as_i64()
-                            .unwrap()
-                            .to_string(),
-                    );
-                    env::set_var(
-                        "MACRO_MANAGER_WINDOW_Y",
-                        window_details_json
-                            .as_object()
-                            .unwrap()
-                            .get("y")
-                            .unwrap()
-                            .as_i64()
-                            .unwrap()
-                            .to_string(),
-                    );
+                    unsafe {
+                        env::set_var(
+                            "MACRO_MANAGER_WINDOW_WIDTH",
+                            window_details_json
+                                .as_object()
+                                .unwrap()
+                                .get("width")
+                                .unwrap()
+                                .as_i64()
+                                .unwrap()
+                                .to_string(),
+                        );
+                        env::set_var(
+                            "MACRO_MANAGER_WINDOW_HEIGHT",
+                            window_details_json
+                                .as_object()
+                                .unwrap()
+                                .get("height")
+                                .unwrap()
+                                .as_i64()
+                                .unwrap()
+                                .to_string(),
+                        );
+                        env::set_var(
+                            "MACRO_MANAGER_WINDOW_X",
+                            window_details_json
+                                .as_object()
+                                .unwrap()
+                                .get("x")
+                                .unwrap()
+                                .as_i64()
+                                .unwrap()
+                                .to_string(),
+                        );
+                        env::set_var(
+                            "MACRO_MANAGER_WINDOW_Y",
+                            window_details_json
+                                .as_object()
+                                .unwrap()
+                                .get("y")
+                                .unwrap()
+                                .as_i64()
+                                .unwrap()
+                                .to_string(),
+                        );
+                    }
 
                     // Mouse info not available
                     // MACRO_MANAGER_MOUSE_X
@@ -401,7 +411,7 @@ impl Macro {
         }
 
         // Should be the process name if known or "default" otherwise at this point
-        env::set_var("MACRO_MANAGER_WINDOW_BIN", &executable);
+        unsafe { env::set_var("MACRO_MANAGER_WINDOW_BIN", &executable) };
 
         let xdg_macro = xdg::BaseDirectories::with_prefix(format!(
             "macro-manager/{}/{}/{}",
