@@ -87,10 +87,8 @@ impl Macro {
         let mut executable = "default".to_owned();
         let tmp;
 
-        // Check Wayland/X11
-        // https://unix.stackexchange.com/a/559950
-        match env::var("WAYLAND_DISPLAY") {
-            Err(_) => {
+        match get_session_type().as_str() {
+            "x11" => {
                 let xdo = unsafe { xdo_new(null()).as_mut() };
                 if xdo.is_none() {
                     eprintln!("Failed initializing xdotool.");
@@ -251,7 +249,7 @@ impl Macro {
                     }
                 }
             }
-            Ok(_) => {
+            "wayland" => {
                 // TODO: Check wayland in general
                 // FIXME: Gnome wayland hardcoded for now
                 // Expect extension installed:
@@ -371,6 +369,10 @@ impl Macro {
                     // MACRO_MANAGER_MOUSE_Y
                     // MACRO_MANAGER_MOUSE_SCREEN
                 }
+            }
+            _ => {
+                eprintln!("Unknown session type found, aborting.");
+                return Err(String::from("Unknown session type."));
             }
         }
 
@@ -560,4 +562,23 @@ impl Macro {
 
         return None;
     }
+}
+
+// https://unix.stackexchange.com/a/559950
+fn get_session_type() -> String {
+    // Try XDG_SESSION_TYPE first
+    match env::var("XDG_SESSION_TYPE") {
+        Ok(session_type) => return session_type,
+        Err(_) => {}
+    }
+
+    // Fallback try WAYLAND_DISPLAY
+    match env::var("WAYLAND_DISPLAY") {
+        Ok(_) => return String::from("wayland"),
+        Err(_) => {}
+    }
+
+    // Fallback completely to X11
+    eprintln!("No session indicator found, falling back to X11");
+    String::from("x11")
 }
