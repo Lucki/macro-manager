@@ -202,8 +202,6 @@ impl Macro {
                             //     _ => panic!("Unable to get window location"),
                             // }
 
-                            println!("1");
-
                             // X11 mouse location
                             let mut mouse_init_x = 0;
                             let mut mouse_init_y = 0;
