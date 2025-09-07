@@ -6,6 +6,8 @@ use libxdo_sys::xdo_get_window_size;
 use libxdo_sys::xdo_new;
 // use libxdo_sys::Struct_xdo;
 use rustix::process::Signal;
+use serde::Deserialize;
+use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::io::Write;
@@ -20,12 +22,11 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::ptr::null;
 use std::time::Duration;
-use toml::Value;
 use xdg::BaseDirectories;
 
 pub struct Manager {
     xdg_dirs: BaseDirectories,
-    config_table: toml::Table,
+    config: ManagerConfig,
 }
 
 pub struct Macro {
@@ -34,9 +35,30 @@ pub struct Macro {
     xdg_dirs: BaseDirectories,
 }
 
-struct ConfigResult {
-    script_file: PathBuf,
-    toggle: bool,
+#[derive(Deserialize, Clone)]
+struct ManagerConfig {
+    #[serde(flatten)]
+    executables: HashMap<String, ExecutableConfig>,
+}
+
+#[derive(Deserialize, Clone)]
+struct ExecutableConfig {
+    #[serde(flatten)]
+    sets: HashMap<String, SetConfig>,
+}
+
+#[derive(Deserialize, Clone)]
+struct SetConfig {
+    default_fallback: Option<bool>,
+
+    #[serde(flatten)]
+    ids: HashMap<String, IDConfig>,
+}
+
+#[derive(Deserialize, Clone)]
+struct IDConfig {
+    toggle: Option<bool>,
+    script: String,
 }
 
 impl Manager {
@@ -44,26 +66,33 @@ impl Manager {
         let xdg_dirs = xdg::BaseDirectories::with_prefix("macro-manager")
             .expect("Unable to get user directories!");
 
-        let config_table = fs::read_to_string(
-            xdg_dirs
-                .find_config_file("config.toml")
-                .expect("Config file not found!"),
+        let config: ManagerConfig = toml::from_str(
+            &fs::read_to_string(
+                xdg_dirs
+                    .find_config_file("config.toml")
+                    .expect("Config file not found!"),
+            )
+            // .map_err(|error| format!("Could not read config file: {}", error)),
+            .expect("Could not read config file."),
         )
-        .expect("Failed reading config file!")
-        .parse::<Value>()
-        .expect("Couldn't parse config file!")
-        .as_table()
-        .expect("Config root is not a table!")
-        .to_owned();
+        .unwrap();
 
-        return Self {
-            xdg_dirs,
-            config_table,
-        };
+        return Self { xdg_dirs, config };
     }
 
     pub fn get_macro(&self, set: String, id: String) -> Result<Macro, String> {
-        return Macro::new(set, id, &self.config_table, &self.xdg_dirs);
+        let executable = Self::get_environment()?;
+
+        let config =
+            Self::get_config_or_fallback(&self.config, executable.clone(), set.clone(), id.clone());
+
+        if config.is_none() {
+            return Err(format!(
+                "No matching config found for EXECUTABLE, SET, ID combination."
+            ));
+        }
+
+        return Macro::new(set, id, config.unwrap(), executable, &self.xdg_dirs);
     }
 
     // fn drop(&mut self) {
@@ -75,15 +104,42 @@ impl Manager {
     //         }
     //     }
     // }
-}
 
-impl Macro {
-    fn new(
+    fn get_config_or_fallback(
+        config: &ManagerConfig,
+        executable: String,
         set: String,
         id: String,
-        config_table: &toml::Table,
-        xdg_dirs: &BaseDirectories,
-    ) -> std::result::Result<Self, String> {
+    ) -> Option<&IDConfig> {
+        if executable != "default" && !config.executables.contains_key(&executable) {
+            println!("No matching config found for EXECUTABLE. Using default…");
+            return Self::get_config_or_fallback(config, String::from("default"), set, id);
+        } else if !config.executables.contains_key(&executable) {
+            return None;
+        }
+
+        let set_config = config
+            .executables
+            .get(&executable)
+            .and_then(|e| e.sets.get(&set));
+
+        if set_config.is_none() {
+            return None;
+        }
+
+        let macro_config = set_config.unwrap().ids.get(&id);
+
+        if macro_config.is_none() && set_config.unwrap().default_fallback.is_some_and(|b| b) {
+            println!(
+                "No matching config found for EXECUTABLE, SET, ID combination. Trying fallback…"
+            );
+            return Self::get_config_or_fallback(config, String::from("default"), set, id);
+        }
+
+        macro_config
+    }
+
+    fn get_environment() -> Result<String, String> {
         let mut executable = "default".to_owned();
         let tmp;
 
@@ -374,44 +430,29 @@ impl Macro {
             }
         }
 
-        // Read toml
-        let data_home = xdg_dirs.get_data_home();
-        let config_result =
-            match Self::read_config(config_table, &set, &id, &executable, &data_home) {
-                Some(val) => val,
-                None => {
-                    if executable == "default" {
-                        eprintln!("No macro found for SET \"{}\" and ID \"{}\".", set, id);
-                        return Err("No macro found for SET and ID.".to_owned());
-                    }
-
-                    // Try again for default values
-                    println!(
-                        "No specific set found for \"{}\", trying \"default\"",
-                        &executable
-                    );
-                    executable = "default".to_owned();
-
-                    match Self::read_config(config_table, &set, &id, &executable, &data_home) {
-                        Some(val) => val,
-                        None => {
-                            eprintln!("No macro found for SET \"{}\" and ID \"{}\".", set, id);
-                            return Err("No macro found for SET and ID.".to_owned());
-                        }
-                    }
-                }
-            };
-
-        if !config_result.script_file.try_exists().unwrap() {
-            eprintln!(
-                "Can't find script file \"{}\"",
-                config_result.script_file.to_string_lossy()
-            );
-            return Err("Can't find script file.".to_owned());
-        }
-
         // Should be the process name if known or "default" otherwise at this point
         unsafe { env::set_var("MACRO_MANAGER_WINDOW_BIN", &executable) };
+
+        Ok(executable)
+    }
+}
+
+impl Macro {
+    fn new(
+        set: String,
+        id: String,
+        config: &IDConfig,
+        executable: String,
+        xdg_dirs: &BaseDirectories,
+    ) -> std::result::Result<Self, String> {
+        let data_home = xdg_dirs.get_data_home();
+        // Using .join() here allows absolute paths to override the XDG_DATA_HOME location
+        let script = Path::new(&data_home).join(&config.script);
+
+        if !script.try_exists().unwrap() {
+            eprintln!("Can't find script file \"{}\"", script.to_string_lossy());
+            return Err("Can't find script file.".to_owned());
+        }
 
         let xdg_macro = xdg::BaseDirectories::with_prefix(format!(
             "macro-manager/{}/{}/{}",
@@ -420,8 +461,8 @@ impl Macro {
         .unwrap();
 
         Ok(Self {
-            toggle: config_result.toggle,
-            script: config_result.script_file,
+            toggle: config.toggle.or_else(|| Some(false)).unwrap(),
+            script,
             xdg_dirs: xdg_macro,
         })
     }
@@ -507,58 +548,6 @@ impl Macro {
         thread::spawn(move || {
             process.wait().expect("Failed to wait on child process.");
         });
-    }
-
-    fn read_config(
-        config_table: &toml::Table,
-        set: &str,
-        id: &str,
-        mut _executable: &str,
-        data_home: &PathBuf,
-    ) -> Option<ConfigResult> {
-        if !config_table.contains_key(_executable) {
-            return None;
-        }
-
-        let executable_table = config_table.get(_executable)?.as_table()?;
-        if !executable_table.contains_key(set) {
-            return None;
-        }
-
-        let set_table = executable_table.get(set)?.as_table()?;
-        if !set_table.contains_key(id) && set_table.contains_key("default_fallback") {
-            if !set_table.get("default_fallback")?.as_bool()? {
-                // Prevent second run to respect user "false" by presetting this value to "default"
-                _executable = "default";
-            }
-
-            return None;
-        }
-
-        let set_id_table = set_table.get(id)?.as_table()?;
-        match set_id_table.get("script") {
-            Some(value) => {
-                let relative_script_path = value.as_str()?;
-
-                // "toggle" is optional, fill missing value with "false"
-                let toggle = match set_id_table.get("toggle") {
-                    Some(val) => val.as_bool().unwrap_or_else(|| {
-                        println!("Unable to read 'toggle' value, using 'false'");
-                        false
-                    }),
-                    None => false,
-                };
-
-                return Some(ConfigResult {
-                    // Using .join() here allows absolute paths to override the XDG_DATA_HOME location
-                    script_file: Path::new(&data_home).join(relative_script_path),
-                    toggle,
-                });
-            }
-            None => (),
-        }
-
-        return None;
     }
 }
 
