@@ -53,34 +53,46 @@ g13.script = ["awesome_script2.sh", "arg1", "arg2"]
 g14 = { script = ["subfolder/awesome_script3.sh"], toggle = true }
 ~~~
 
-### Example autoclicker script
+### Example scripts
+#### Generic dotool wrapper
 ~~~ sh
 #!/bin/bash
 
+echo "$@" | dotoolc
+
+# example config:
+# [default.m1]
+# g3.script = ["general/dotool.sh", "mousemove", "0", "-1"] # mouse 1px up
+~~~
+
+
+#### Autoclicker
+~~~ sh
+#!/bin/bash
+# using https://sr.ht/~geb/dotool/
+
 # define signal handler
 term_handler() {
-	# make sure we're not stuck in a mousedown event
-	xdotool mouseup 1
-
-	exit 0
+    sleep 0.5
+    echo buttonup left | dotoolc
+    exit 0
 }
 
 # register signal handler
 trap term_handler SIGTERM
 
 while true; do
-	# we 're not using xdotool click 1 here because that adds
-	# a 12ms delay between mousedown and mouseup
-	xdotool mousedown 1
-
-	# this adjusts the click speed
-	sleep 0.025
-
-	xdotool mouseup 1
+    {
+        echo buttondown left
+        sleep 0.021
+        echo buttonup left
+        sleep 0.021
+    } | dotoolc
 done
+
 ~~~
 
-### Example emergency script - close all currently running scripts
+#### Emergency script - close all currently running scripts
 ~~~ sh
 #!/bin/sh
 
