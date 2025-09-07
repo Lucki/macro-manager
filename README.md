@@ -39,18 +39,18 @@ The Macro object runs with the `run()` method.
 ### Example config
 ~~~ toml
 [default.set1.id3]
-script = "autoclicker.sh"
+script = ["autoclicker.sh"]
 toggle = true
 
 ["program.exe".set1]
 default_fallback = true
 
 ["program.exe".set1.id8]
-script = "awesome_script1.sh"
+script = ["awesome_script1.sh"]
 
 [firefox.m1]
-g13.script = "awesome_script2.sh"
-g14.script = "subfolder/awesome_script3.sh"
+g13.script = ["awesome_script2.sh", "arg1", "arg2"]
+g14 = { script = ["subfolder/awesome_script3.sh"], toggle = true }
 ~~~
 
 ### Example autoclicker script

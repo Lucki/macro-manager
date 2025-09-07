@@ -32,6 +32,7 @@ pub struct Manager {
 pub struct Macro {
     toggle: bool,
     script: PathBuf,
+    arguments: Vec<String>,
     xdg_dirs: BaseDirectories,
 }
 
@@ -58,7 +59,7 @@ struct SetConfig {
 #[derive(Deserialize, Clone)]
 struct IDConfig {
     toggle: Option<bool>,
-    script: String,
+    script: Vec<String>,
 }
 
 impl Manager {
@@ -447,7 +448,12 @@ impl Macro {
     ) -> std::result::Result<Self, String> {
         let data_home = xdg_dirs.get_data_home();
         // Using .join() here allows absolute paths to override the XDG_DATA_HOME location
-        let script = Path::new(&data_home).join(&config.script);
+        let script = Path::new(&data_home).join(&config.script[0]);
+        let mut arguments = Vec::new();
+
+        for arg in &config.script[1..] {
+            arguments.push(arg.to_owned());
+        }
 
         if !script.try_exists().unwrap() {
             eprintln!("Can't find script file \"{}\"", script.to_string_lossy());
@@ -463,6 +469,7 @@ impl Macro {
         Ok(Self {
             toggle: config.toggle.or_else(|| Some(false)).unwrap(),
             script,
+            arguments,
             xdg_dirs: xdg_macro,
         })
     }
@@ -511,6 +518,7 @@ impl Macro {
 
         // Spawn process
         let mut process = Command::new(self.script.as_os_str())
+            .args(&self.arguments)
             .spawn()
             .expect("Script failed to start.");
 

@@ -18,18 +18,18 @@ use clap::Parser;
 /// Example config:
 /// ~~~ toml
 /// [default.set1.id3]
-/// script = "autoclicker.sh"
+/// script = ["autoclicker.sh"]
 /// toggle = true
 ///
 /// ["program.exe".set1]
 /// default_fallback = true
 ///
 /// ["program.exe".set1.id8]
-/// script = "awesome_script1.sh"
+/// script = ["awesome_script1.sh"]
 ///
 /// [firefox.m1]
-/// g13.script = "awesome_script2.sh"
-/// g14.script = "subfolder/awesome_script3.sh"
+/// g13.script = ["awesome_script2.sh", "arg1", "arg2"]
+/// g14 = { script = ["subfolder/awesome_script3.sh"], toggle = true }
 /// ~~~
 ///
 /// Start/Stop (toggle) the "autoclicker.sh" script:
@@ -50,7 +50,8 @@ struct Cli {
 fn main() {
     let args = Cli::parse();
     let manager = macro_manager::Manager::new();
-    let m = manager.get_macro(args.set, args.id)
+    let m = manager
+        .get_macro(args.set, args.id)
         .expect("Failed initializing Macro");
     m.run();
 }
