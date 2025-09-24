@@ -89,7 +89,7 @@ impl Manager {
 
         if config.is_none() {
             return Err(format!(
-                "No matching config found for EXECUTABLE, SET, ID combination."
+                "No matching config found for {executable:#?}, {set:#?}, {id:#?} combination."
             ));
         }
 
@@ -113,7 +113,7 @@ impl Manager {
         id: String,
     ) -> Option<&IDConfig> {
         if executable != "default" && !config.executables.contains_key(&executable) {
-            println!("No matching config found for EXECUTABLE. Using default…");
+            println!("No matching config found for {executable:#?}. Trying \"default\"…");
             return Self::get_config_or_fallback(config, String::from("default"), set, id);
         } else if !config.executables.contains_key(&executable) {
             return None;
@@ -132,7 +132,7 @@ impl Manager {
 
         if macro_config.is_none() && set_config.unwrap().default_fallback.is_some_and(|b| b) {
             println!(
-                "No matching config found for EXECUTABLE, SET, ID combination. Trying fallback…"
+                "No matching config found for {executable:#?}, {set:#?}, {id:#?} combination. Trying fallback \"default\"…"
             );
             return Self::get_config_or_fallback(config, String::from("default"), set, id);
         }
