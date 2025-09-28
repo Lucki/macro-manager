@@ -47,11 +47,9 @@ struct Cli {
     id: String,
 }
 
-fn main() {
+fn main() -> Result<(), String> {
     let args = Cli::parse();
-    let manager = macro_manager::Manager::new();
-    let m = manager
-        .get_macro(args.set, args.id)
-        .expect("Failed initializing Macro");
-    m.run();
+    let manager = macro_manager::Manager::new()?;
+    let m = manager.get_macro(args.set, args.id)?;
+    m.run()
 }

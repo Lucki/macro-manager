@@ -1,26 +1,24 @@
-// use libxdo_sys::xdo_free;
+use dbus::blocking::Connection;
 use libxdo_sys::xdo_get_focused_window_sane;
 use libxdo_sys::xdo_get_mouse_location;
 use libxdo_sys::xdo_get_pid_window;
 use libxdo_sys::xdo_get_window_size;
 use libxdo_sys::xdo_new;
-// use libxdo_sys::Struct_xdo;
 use rustix::process::Signal;
+use rustix::process::kill_process;
 use serde::Deserialize;
+use serde_json;
 use std::collections::HashMap;
 use std::env;
 use std::fs;
-use std::io::Write;
-use std::thread;
-// use std::mem::replace;
-use dbus::blocking::Connection;
-use rustix::process::kill_process;
-use serde_json;
 use std::fs::File;
+use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
+use std::process::ExitStatus;
 use std::ptr::null;
+use std::thread;
 use std::time::Duration;
 use xdg::BaseDirectories;
 
@@ -63,22 +61,21 @@ struct IDConfig {
 }
 
 impl Manager {
-    pub fn new() -> Self {
+    pub fn new() -> Result<Self, String> {
         let xdg_dirs = xdg::BaseDirectories::with_prefix("macro-manager")
-            .expect("Unable to get user directories!");
+            .map_err(|e| format!("Unable to get user directories: {e}"))?;
 
         let config: ManagerConfig = toml::from_str(
             &fs::read_to_string(
                 xdg_dirs
                     .find_config_file("config.toml")
-                    .expect("Config file not found!"),
+                    .ok_or_else(|| format!("Config file not found."))?,
             )
-            // .map_err(|error| format!("Could not read config file: {}", error)),
-            .expect("Could not read config file."),
+            .map_err(|error| format!("Could not read config file: {}", error))?,
         )
-        .unwrap();
+        .map_err(|e| format!("Failed parsing config file: {e}"))?;
 
-        return Self { xdg_dirs, config };
+        Ok(Self { xdg_dirs, config })
     }
 
     pub fn get_macro(&self, set: String, id: String) -> Result<Macro, String> {
@@ -474,28 +471,30 @@ impl Macro {
         })
     }
 
-    pub fn run(&self) {
+    pub fn run(&self) -> Result<(), String> {
         let runtime_file_name = format!(
             "{}.pid",
             self.script
                 .file_stem()
-                .expect("Failed getting script file name")
+                .ok_or_else(|| format!("Failed getting script file name"))?
                 .to_str()
-                .expect("Failed creating string form OsString")
+                .ok_or_else(|| format!("Failed creating string form OsString"))?
         );
         let runtime_file = self.xdg_dirs.find_runtime_file(&runtime_file_name);
 
         if self.toggle {
             // Check runtime file
             match runtime_file {
+                None => (),
                 // Kill existing process and return if found
                 Some(file) => {
-                    let pid = fs::read_to_string(&file).expect("Failed reading PID file.");
+                    let pid = fs::read_to_string(&file)
+                        .map_err(|e| format!("Failed reading PID file: {e}"))?;
 
                     // kill pid
                     match kill_process(
                         rustix::process::Pid::from_raw(pid.parse().unwrap())
-                            .expect("Failed creating PID object"),
+                            .ok_or_else(|| format!("Failed creating PID object."))?,
                         Signal::Term,
                     ) {
                         Err(err) => {
@@ -508,11 +507,10 @@ impl Macro {
                     }
 
                     // remove existing pid file
-                    fs::remove_file(&file).expect("Removing PID file failed.");
+                    fs::remove_file(&file).map_err(|e| format!("Removing PID file failed: {e}"))?;
 
-                    return;
+                    return Ok(());
                 }
-                None => (),
             }
         }
 
@@ -520,42 +518,50 @@ impl Macro {
         let mut process = Command::new(self.script.as_os_str())
             .args(&self.arguments)
             .spawn()
-            .expect("Script failed to start.");
+            .map_err(|e| format!("Script failed to start: {e}"))?;
 
         // Return early if don't need to write the PID file
         if !self.toggle {
-            thread::spawn(move || {
-                process.wait().expect("Failed to wait on child process.");
+            thread::spawn(move || -> Result<ExitStatus, String> {
+                Ok(process
+                    .wait()
+                    .map_err(|e| format!("Failed to wait on child process: {e}"))?)
             });
-            return;
+            return Ok(());
         }
 
         // Write PID to file
         let runtime_file = self
             .xdg_dirs
             .place_runtime_file(&runtime_file_name)
-            .expect("Can't create runtime file. Started program can't be stopped again!");
-        let mut pid_file = match File::create(&runtime_file) {
-            Err(why) => panic!(
-                "Couldn't create PID file \"{}\": {}",
-                runtime_file.to_str().unwrap(),
-                why
-            ),
-            Ok(file) => file,
-        };
+            .map_err(|e| {
+                format!(
+                    "Can't create runtime file. Started program can't be stopped again! Error: {e}"
+                )
+            })?;
+        let mut pid_file = File::create(&runtime_file).map_err(|e| {
+            format!(
+                "Couldn't create PID file \"{}\": {e}",
+                runtime_file.to_str().unwrap()
+            )
+        })?;
 
-        match pid_file.write_all(process.id().to_string().as_bytes()) {
-            Err(why) => panic!(
-                "Couldn't write to PID file \"{}\": {}",
-                runtime_file.to_str().unwrap(),
-                why
-            ),
-            Ok(_) => {}
-        }
+        pid_file
+            .write_all(process.id().to_string().as_bytes())
+            .map_err(|e| {
+                format!(
+                    "Couldn't write to PID file \"{}\": {e}",
+                    runtime_file.to_str().unwrap()
+                )
+            })?;
 
-        thread::spawn(move || {
-            process.wait().expect("Failed to wait on child process.");
+        thread::spawn(move || -> Result<ExitStatus, String> {
+            Ok(process
+                .wait()
+                .map_err(|e| format!("Failed to wait on child process: {e}"))?)
         });
+
+        Ok(())
     }
 }
 
